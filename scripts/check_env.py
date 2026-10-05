@@ -249,7 +249,8 @@ def f_torch_train(steps: int = 30):
     back = NeuralDecoder.load(path)
     x = np.random.default_rng(0).integers(0, 2, (16, nd.n_det), dtype=np.uint8)
     assert np.allclose(nd.predict_logits(x), back.predict_logits(x)), "save/load round trip changed the weights"
-    dev = "cpu" + (", MPS (Apple GPU) available" if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available() else "") \
+    from src.decoders.neural import resolve_device
+    dev = f"using {resolve_device()}; cpu" + (", MPS (Apple GPU) available" if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available() else "") \
         + (", CUDA available" if torch.cuda.is_available() else "")
     return f"{steps}-step training ran (val BCE {res.best_val_loss:.3f}), checkpoint saved + reloaded; torch threads={torch.get_num_threads()} [{dev}]"
 

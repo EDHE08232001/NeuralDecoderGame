@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,6 +40,28 @@ import torch
 import torch.nn as nn
 
 from .base import Decoder
+
+
+# ==================================================================== device
+def resolve_device(device: str | torch.device | None = None) -> torch.device:
+    """Pick the compute device: an explicit name, else ``$QEC_DEVICE``, else the best
+    available accelerator (CUDA, then Apple MPS, then CPU).
+
+    ``"auto"`` (or ``None``) auto-detects; ``"cuda"``/``"cuda:1"``/``"mps"``/``"cpu"`` are
+    honoured and rejected with a clear error if the backend is not available.
+    """
+    if isinstance(device, torch.device):
+        return device
+    name = (device or os.environ.get("QEC_DEVICE") or "auto").strip().lower()
+    mps_ok = getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available()
+    if name == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "mps" if mps_ok else "cpu")
+    dev = torch.device(name)
+    if dev.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA requested but torch.cuda.is_available() is False")
+    if dev.type == "mps" and not mps_ok:
+        raise RuntimeError("MPS requested but torch.backends.mps.is_available() is False")
+    return dev
 
 
 # =================================================================== networks
@@ -194,6 +217,7 @@ def train(
     lr_schedule: str = "constant",
     seed: int = 0,
     log: Callable[[str], None] | None = None,
+    device: str | torch.device | None = None,
 ) -> TrainResult:
     """Train ``model`` on fresh syndromes from ``sampler(batch) -> (det, obs)``.
 
@@ -208,16 +232,21 @@ def train(
     ``lr_schedule="constant"`` is the plan's recipe (Adam, lr 1e-3); ``"cosine"``
     anneals the learning rate to ``0.01 * lr`` over ``steps`` (optional, usually lets a
     small network get noticeably closer to the optimal decoder for the same budget).
+
+    ``device`` selects CPU / CUDA / Apple MPS (see :func:`resolve_device`; default auto).
+    The model is left on that device; samples are generated on the CPU and copied over.
     """
     if lr_schedule not in ("constant", "cosine"):
         raise ValueError("lr_schedule must be 'constant' or 'cosine'")
+    dev = resolve_device(device)
     torch.manual_seed(seed)
+    model.to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     sched = (torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps, eta_min=0.01 * lr)
              if lr_schedule == "cosine" else None)
     lossf = nn.BCEWithLogitsLoss()
-    xv = torch.from_numpy(np.ascontiguousarray(val_data[0])).float()
-    yv = torch.from_numpy(np.ascontiguousarray(val_data[1])).float()
+    xv = torch.from_numpy(np.ascontiguousarray(val_data[0])).float().to(dev)
+    yv = torch.from_numpy(np.ascontiguousarray(val_data[1])).float().to(dev)
 
     best = float("inf")
     best_state = copy.deepcopy(model.state_dict())
@@ -229,8 +258,8 @@ def train(
     step = 0
     for step in range(1, steps + 1):
         det, obs = sampler(batch)                       # fresh data each step
-        x = torch.from_numpy(det).float()
-        y = torch.from_numpy(obs).float()
+        x = torch.from_numpy(det).float().to(dev)
+        y = torch.from_numpy(obs).float().to(dev)
         loss = lossf(model(x), y)
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -255,6 +284,8 @@ def train(
                     break
     model.load_state_dict(best_state)
     model.eval()
+    if dev.type == "cuda":
+        torch.cuda.synchronize(dev)
     return TrainResult(best_val_loss=best, best_step=best_step, steps_run=step,
                        stopped_early=stopped, seconds=time.time() - t0, history=hist)
 
@@ -263,11 +294,22 @@ def train(
 class NeuralDecoder(Decoder):
     """Wraps a trained network + metadata behind the common ``Decoder`` interface."""
 
-    def __init__(self, net: nn.Module, meta: dict | None = None, name: str = "NN"):
-        self.net = net.eval()
+    def __init__(self, net: nn.Module, meta: dict | None = None, name: str = "NN",
+                 device: str | torch.device | None = None):
+        # ``device=None`` keeps the net wherever it already is (e.g. where it was trained)
+        self.net = (net if device is None else net.to(resolve_device(device))).eval()
         self.meta = dict(meta or {})
         self.name = name
         self.n_det = net.kwargs["n_det"]
+
+    @property
+    def device(self) -> torch.device:
+        return next(self.net.parameters()).device
+
+    def to(self, device: str | torch.device | None) -> "NeuralDecoder":
+        """Move the network to ``device`` (``None``/``"auto"`` = best available)."""
+        self.net.to(resolve_device(device))
+        return self
 
     @torch.no_grad()
     def predict_logits(self, detectors: np.ndarray, chunk: int = 131072) -> np.ndarray:
@@ -276,7 +318,8 @@ class NeuralDecoder(Decoder):
             det = det[None, :]
         if det.shape[1] != self.n_det:
             raise ValueError(f"network expects {self.n_det} detectors, got {det.shape[1]}")
-        out = [self.net(torch.from_numpy(det[i:i + chunk]).float()).numpy()
+        dev = self.device
+        out = [self.net(torch.from_numpy(det[i:i + chunk]).float().to(dev)).cpu().numpy()
                for i in range(0, len(det), chunk)]
         return np.concatenate(out)
 
@@ -294,15 +337,18 @@ class NeuralDecoder(Decoder):
         # python types and can be read back with torch.load(weights_only=True) (no pickle code)
         meta = json.loads(json.dumps(self.meta, default=str))
         torch.save({"arch": self.net.arch, "kwargs": self.net.kwargs,
-                    "state_dict": self.net.state_dict(), "meta": meta}, path)
+                    "state_dict": {k: v.detach().cpu() for k, v in self.net.state_dict().items()},
+                    "meta": meta}, path)
         return path
 
     @classmethod
-    def load(cls, path: str | Path, name: str = "NN") -> "NeuralDecoder":
+    def load(cls, path: str | Path, name: str = "NN",
+             device: str | torch.device | None = "cpu") -> "NeuralDecoder":
+        """Load a checkpoint (always device-independent); ``device`` is where to put the net."""
         ck = torch.load(path, map_location="cpu", weights_only=True)
         kw = dict(ck["kwargs"])
         n_det = kw.pop("n_det")
         n_anc = kw.pop("n_anc", None)
         net = build_network(ck["arch"], n_det, n_anc, **kw)
         net.load_state_dict(ck["state_dict"])
-        return cls(net, ck.get("meta", {}), name)
+        return cls(net, ck.get("meta", {}), name, device=device)

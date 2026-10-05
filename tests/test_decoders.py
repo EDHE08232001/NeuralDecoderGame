@@ -203,3 +203,19 @@ def test_cnn_and_gru_train_without_error():
         res = train(net, SyndromeSampler(c, seed=2), val_data=val, steps=40, batch=256, eval_every=20)
         assert np.isfinite(res.best_val_loss)
         assert isinstance(net, (CNNDecoder, GRUDecoder))
+
+
+def test_resolve_device_and_cpu_roundtrip(tmp_path, monkeypatch):
+    from src.decoders.neural import resolve_device
+    assert resolve_device("cpu").type == "cpu"
+    assert resolve_device("auto").type in ("cpu", "cuda", "mps")
+    monkeypatch.setenv("QEC_DEVICE", "cpu")
+    assert resolve_device(None).type == "cpu"
+    if not torch.cuda.is_available():
+        with pytest.raises(RuntimeError):
+            resolve_device("cuda")
+    nd = NeuralDecoder(MLPDecoder(24), device="cpu")
+    assert nd.device.type == "cpu"
+    back = NeuralDecoder.load(nd.save(tmp_path / "m.pt"), device="cpu")
+    x = np.random.default_rng(0).integers(0, 2, (8, 24), dtype=np.uint8)
+    assert np.allclose(nd.predict_logits(x), back.predict_logits(x))

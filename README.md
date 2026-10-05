@@ -141,6 +141,17 @@ python -m scripts.train --help
 ```
 Models are saved to `results/models/` (naming: `custom_<code>_<noise>_d<d>_r<rounds>_<arch>.pt`). **Training time:** ~25 ms/step on a 4-core CPU for `d=5` (see `check_env`), so the default 3000 steps is about 1-2 minutes. Larger `d` and lower `p` need more steps (`--steps 6000+`).
 
+### GPU acceleration (CUDA / Apple MPS)
+
+Training and inference run on the best available device automatically
+(**CUDA > Apple MPS > CPU**). Override with `--accel cpu|cuda|mps|auto` on
+`scripts.train`, or globally with the `QEC_DEVICE` environment variable
+(e.g. `QEC_DEVICE=mps python -m scripts.run_experiments ...`). Checkpoints are saved
+device-independently, so a model trained on a GPU loads fine on a CPU-only machine.
+For these small networks the CPU is often just as fast; the GPU helps with large
+batches, `--arch gru|cnn` and big `--hidden` sizes. On a Mac, install the standard
+`torch` wheel (it includes MPS); on NVIDIA, install the CUDA build from pytorch.org.
+
 ### The whole study from the plan (optional, slow)
 ```zsh
 python -m scripts.run_experiments --quick                  # 2-minute smoke test, tiny budget (numbers meaningless)

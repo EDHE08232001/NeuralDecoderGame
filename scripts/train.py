@@ -47,6 +47,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--eval-every", type=int, default=250)
     ap.add_argument("--patience", type=int, default=8, help="early stopping patience, in evaluations")
     ap.add_argument("--test-shots", type=int, default=200_000, help="fresh shots for the final comparison")
+    ap.add_argument("--accel", default=None, metavar="auto|cpu|cuda|mps",
+                    help="compute device for training/inference (default: $QEC_DEVICE or auto = CUDA > MPS > CPU)")
     ap.add_argument("--threads", type=int, default=None, help="torch CPU threads")
     ap.add_argument("--dataset", type=Path, default=None, help="train from this stored dataset instead")
     ap.add_argument("--val-dataset", type=Path, default=None)
@@ -75,7 +77,10 @@ def main(argv: list[str] | None = None) -> int:
     common = dict(d=args.d, code=args.code, arch=args.arch, record=record, steps=args.steps, batch=args.batch,
                   lr=args.lr, lr_schedule=args.lr_schedule, hidden=args.hidden, depth=args.depth,
                   eval_every=args.eval_every, patience=args.patience, seeds=seeds,
-                  meta=dict(code=args.code, d=args.d, rounds=rounds, noise=spec.to_dict()), log=print)
+                  meta=dict(code=args.code, d=args.d, rounds=rounds, noise=spec.to_dict()), log=print,
+                  device=args.accel)
+    from src.decoders.neural import resolve_device
+    print(f"compute device: {resolve_device(args.accel)}")
     print(f"training {args.arch}{'+record' if record else ''} on {args.code} d={args.d} rounds={rounds} "
           f"[{spec.label}]  n_det={circuit.num_detectors}")
     if args.dataset:
