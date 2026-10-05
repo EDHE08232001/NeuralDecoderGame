@@ -1,0 +1,72 @@
+{
+  "versions": {
+    "python": "3.11.15",
+    "platform": "Linux-6.18.44-fc-v70-x86_64-with-glibc2.39",
+    "stim": "1.16.0",
+    "pymatching": "2.4.0",
+    "torch": "2.14.1+cpu",
+    "qiskit": "2.5.2",
+    "numpy": "2.4.6",
+    "pandas": "3.0.6"
+  },
+  "runs": [
+    {
+      "created": "2026-10-05T05:28:35+0000",
+      "config": {
+        "shots_test": 200000,
+        "shots_val": 100000,
+        "steps": {
+          "3": 3000,
+          "5": 4000,
+          "7": 6000
+        },
+        "surface_steps": 6000,
+        "batch": 4096,
+        "lr": 0.001,
+        "lr_schedule": "cosine",
+        "hidden": 256,
+        "depth": 3,
+        "eval_every": 250,
+        "patience": 8,
+        "distances": [
+          3,
+          5,
+          7
+        ],
+        "p_grid": [
+          0.001,
+          0.002,
+          0.005,
+          0.01,
+          0.02,
+          0.03,
+          0.05
+        ],
+        "p_surface": [
+          0.001,
+          0.002,
+          0.003,
+          0.005,
+          0.007,
+          0.01,
+          0.015
+        ],
+        "bias": 5.0,
+        "corr": 0.5,
+        "ablation": true,
+        "ablation_distances": [
+          5
+        ],
+        "workers": 1,
+        "e1_max_shots": 5000000,
+        "retrain": false,
+        "results_dir": "/home/user/QuantumNeuralQecDecoderGame/results",
+        "verbose": true
+      },
+      "experiments": [
+        "e1"
+      ],
+      "wall_seconds": 27.9
+    }
+  ]
+}

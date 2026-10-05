@@ -1,0 +1,31 @@
+# --- secrets: the IBM / PINQ2 token must NEVER be committed ---
+.env
+.env.*
+!.env.example
+*.token
+qiskit-ibm.json
+
+# --- python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+.mypy_cache/
+.ruff_cache/
+
+# --- bulk data (regenerate with scripts/collect_dataset.py) ---
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# --- local game state ---
+results/game_leaderboard.jsonl
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
