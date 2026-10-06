@@ -29,3 +29,4 @@ results/game_leaderboard.jsonl
 .DS_Store
 .idea/
 .vscode/
+._*
